@@ -1,0 +1,16 @@
+{
+  "name": "@akkun/gameserver-types",
+  "version": "0.1.0",
+  "description": "Shared types for gameserver (Ubuntu API) and gameserver-bot (Discord bot). Types and zod schemas only, no runtime implementation.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
