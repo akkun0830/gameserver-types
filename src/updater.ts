@@ -50,6 +50,16 @@ export interface ServerUpdateRequest {
   composeDir: string;
   /** .env ファイルのパス。 */
   envPath: string;
+  /**
+   * docker-compose.yml 上のサービス名（例: "mc-java-plugin"）。
+   *
+   * dockerode（stopContainer/startContainer）が要求するフルコンテナ名
+   * （例: "gameserver-mc-java-plugin-1"、updateServerAndPlugins の
+   * containerName 引数）とは別物。`docker compose up -d` コマンドは
+   * こちらのサービス名を要求するため、両者を混同すると
+   * "no such service" エラーになる。
+   */
+  serviceName: string;
 }
 
 export type UpdateOutcome =
@@ -80,5 +90,23 @@ export type UpdateOutcome =
      */
     kind: "server_jar_not_found";
     searchedIn: string;
+  }
+  | {
+    /**
+     * `docker compose up -d` 自体が失敗し、起動確認（ログ監視）まで
+     * 到達しなかった。rolled_back / rollback_failed と違い startup
+     * フィールドを持たないのは、そもそもログ監視を行っていないため
+     * （起動確認の結果が無いのに healthy/timedOut を詰めると、
+     * 実際には確認していないのに確認したかのように読めてしまう）。
+     */
+    kind: "compose_failed";
+    backupRef: string;
+    error: string;
+    /**
+     * .env 復元・プラグイン復元によるロールバックに成功したか。
+     * false の場合、ディスク上の状態（.env・plugins/）が中途半端なまま
+     * 残っている可能性があり、手動対応が必要。
+     */
+    rolledBack: boolean;
   }
   | { kind: "success"; backupRef: string; updatedPlugins: string[] };
