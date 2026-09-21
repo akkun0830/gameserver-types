@@ -16,7 +16,17 @@ export interface StartupCheckResult {
 }
 
 export interface PluginUpdateRequest {
-  /** lock のキーとなるプラグイン名。 */
+  /**
+   * lock のキーとなるプラグイン名。
+   *
+   * 更新前の現ファイル名（旧 currentFile）はここに含めない。updater.ts は
+   * 実行時に自分で readLock + reconcile 済みの lock を持っているため、
+   * そちらから引く方が「ディスク上に実在するファイル名である」ことが
+   * 保証される。Bot 側から送らせると、判定時点と実行時点のタイミングの
+   * ズレを検証できないまま rm(..., { force: true }) に渡ることになり、
+   * ズレていても静かに失敗して旧バージョンの jar が残置される
+   * （同じプラグインの2バージョン同居）リスクがあった。
+   */
   name: string;
   resolved: {
     version: string;
@@ -29,8 +39,6 @@ export interface PluginUpdateRequest {
   source: PluginsLock["plugins"][string]["source"];
   projectId?: string;
   required: boolean;
-  /** 更新前の現ファイル名。新規追加プラグインなら null。 */
-  currentFile: string | null;
 }
 
 export interface ServerUpdateRequest {
@@ -49,28 +57,28 @@ export type UpdateOutcome =
   | { kind: "reconcile_failed"; result: ReconcileResult }
   | { kind: "download_failed"; error: string }
   | {
-      kind: "rolled_back";
-      backupRef: string;
-      diagnosis: string[];
-      startup: StartupCheckResult;
-    }
+    kind: "rolled_back";
+    backupRef: string;
+    diagnosis: string[];
+    startup: StartupCheckResult;
+  }
   | {
-      kind: "rollback_failed";
-      backupRef: string;
-      diagnosis: string[];
-      startup: StartupCheckResult;
-      rollbackError: string;
-    }
+    kind: "rollback_failed";
+    backupRef: string;
+    diagnosis: string[];
+    startup: StartupCheckResult;
+    rollbackError: string;
+  }
   | {
-      /**
-       * サーバー自体は正常起動したが、更新後の本体JARファイルを検出できず
-       * lock に記録できなかった。サーバーは新バージョンで動作しているが
-       * lock が古い情報のまま乖離した状態を意味する。success として扱うと
-       * 次回の判定（checker.ts）が誤った現在バージョンを前提にしてしまうため、
-       * 独立した結果種別として区別する。ロールバックはしない
-       * （サーバー自体は正常なので、無闇に戻す方が実害が大きい）。
-       */
-      kind: "server_jar_not_found";
-      searchedIn: string;
-    }
+    /**
+     * サーバー自体は正常起動したが、更新後の本体JARファイルを検出できず
+     * lock に記録できなかった。サーバーは新バージョンで動作しているが
+     * lock が古い情報のまま乖離した状態を意味する。success として扱うと
+     * 次回の判定（checker.ts）が誤った現在バージョンを前提にしてしまうため、
+     * 独立した結果種別として区別する。ロールバックはしない
+     * （サーバー自体は正常なので、無闇に戻す方が実害が大きい）。
+     */
+    kind: "server_jar_not_found";
+    searchedIn: string;
+  }
   | { kind: "success"; backupRef: string; updatedPlugins: string[] };
