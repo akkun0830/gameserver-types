@@ -67,46 +67,90 @@ export type UpdateOutcome =
   | { kind: "reconcile_failed"; result: ReconcileResult }
   | { kind: "download_failed"; error: string }
   | {
-    kind: "rolled_back";
-    backupRef: string;
-    diagnosis: string[];
-    startup: StartupCheckResult;
-  }
+      /**
+       * 本体更新の直前に取るワールドのスナップショット（scripts/snapshot.sh）が
+       * 失敗したため、更新を開始しなかった。ディスク上は何も変更していない。
+       *
+       * 本体バージョンを跨ぐ更新はワールドデータを不可逆に変換するため、
+       * 「戻せる状態」を確保できないまま走らせない、という判断でここで止める。
+       * スナップショットが取れないのは大抵ディスク満杯か権限異常であり、
+       * その状態で更新を続けるとロールバックすら怪しくなる。
+       *
+       * updatePlugins（プラグインのみの更新）はワールドを変換しないため
+       * スナップショットを取らず、この種別も返さない。
+       */
+      kind: "snapshot_failed";
+      error: string;
+    }
   | {
-    kind: "rollback_failed";
-    backupRef: string;
-    diagnosis: string[];
-    startup: StartupCheckResult;
-    rollbackError: string;
-  }
+      kind: "rolled_back";
+      backupRef: string;
+      diagnosis: string[];
+      startup: StartupCheckResult;
+    }
   | {
-    /**
-     * サーバー自体は正常起動したが、更新後の本体JARファイルを検出できず
-     * lock に記録できなかった。サーバーは新バージョンで動作しているが
-     * lock が古い情報のまま乖離した状態を意味する。success として扱うと
-     * 次回の判定（checker.ts）が誤った現在バージョンを前提にしてしまうため、
-     * 独立した結果種別として区別する。ロールバックはしない
-     * （サーバー自体は正常なので、無闇に戻す方が実害が大きい）。
-     */
-    kind: "server_jar_not_found";
-    searchedIn: string;
-  }
+      /**
+       * 復元（jar・プラグイン・.env の巻き戻し）と `docker compose up -d` は
+       * 成功したが、その後の起動確認で正常起動を確認できなかった。
+       *
+       * rolled_back と分けるのは、ディスク上の状態は戻っているのにサーバーが
+       * 動いていないという、手動対応が必要な状態だから。rolled_back を
+       * 「戻して正常起動した」の意味に保つことで、Discord 表示側が
+       * kind だけで正しく出し分けられる。
+       *
+       * 典型的な原因は本体バージョンを跨いだ更新でのワールドデータの非互換。
+       * 新バージョンが一度ワールドをロードすると level.dat の DataVersion や
+       * region の chunk が新形式に書き換わり、この変換は不可逆なため、
+       * jar を旧バージョンへ戻しても読めなくなることがある。
+       *
+       * rollbackStartup の errorLines に原因のログが入る。diagnosis
+       * （プラグイン容疑者）は更新時の startup を元にしたもので、
+       * 復元後の失敗原因とは無関係な点に注意（復元でプラグインは
+       * 元に戻っているため、プラグインが原因である可能性は低い）。
+       */
+      kind: "rollback_unhealthy";
+      backupRef: string;
+      diagnosis: string[];
+      /** 更新後（新バージョン）の起動確認結果。 */
+      startup: StartupCheckResult;
+      /** 復元後（旧バージョン）の起動確認結果。 */
+      rollbackStartup: StartupCheckResult;
+    }
   | {
-    /**
-     * `docker compose up -d` 自体が失敗し、起動確認（ログ監視）まで
-     * 到達しなかった。rolled_back / rollback_failed と違い startup
-     * フィールドを持たないのは、そもそもログ監視を行っていないため
-     * （起動確認の結果が無いのに healthy/timedOut を詰めると、
-     * 実際には確認していないのに確認したかのように読めてしまう）。
-     */
-    kind: "compose_failed";
-    backupRef: string;
-    error: string;
-    /**
-     * .env 復元・プラグイン復元によるロールバックに成功したか。
-     * false の場合、ディスク上の状態（.env・plugins/）が中途半端なまま
-     * 残っている可能性があり、手動対応が必要。
-     */
-    rolledBack: boolean;
-  }
+      kind: "rollback_failed";
+      backupRef: string;
+      diagnosis: string[];
+      startup: StartupCheckResult;
+      rollbackError: string;
+    }
+  | {
+      /**
+       * サーバー自体は正常起動したが、更新後の本体JARファイルを検出できず
+       * lock に記録できなかった。サーバーは新バージョンで動作しているが
+       * lock が古い情報のまま乖離した状態を意味する。success として扱うと
+       * 次回の判定（checker.ts）が誤った現在バージョンを前提にしてしまうため、
+       * 独立した結果種別として区別する。ロールバックはしない
+       * （サーバー自体は正常なので、無闇に戻す方が実害が大きい）。
+       */
+      kind: "server_jar_not_found";
+      searchedIn: string;
+    }
+  | {
+      /**
+       * `docker compose up -d` 自体が失敗し、起動確認（ログ監視）まで
+       * 到達しなかった。rolled_back / rollback_failed と違い startup
+       * フィールドを持たないのは、そもそもログ監視を行っていないため
+       * （起動確認の結果が無いのに healthy/timedOut を詰めると、
+       * 実際には確認していないのに確認したかのように読めてしまう）。
+       */
+      kind: "compose_failed";
+      backupRef: string;
+      error: string;
+      /**
+       * .env 復元・プラグイン復元によるロールバックに成功したか。
+       * false の場合、ディスク上の状態（.env・plugins/）が中途半端なまま
+       * 残っている可能性があり、手動対応が必要。
+       */
+      rolledBack: boolean;
+    }
   | { kind: "success"; backupRef: string; updatedPlugins: string[] };
